@@ -1,7 +1,7 @@
 {
-    "id": "minecraft-modrinth",
-    "name": "Minecraft Modrinth",
-    "author": "Boy132",
+    "id": "pelican-mc-manager",
+    "name": "Pelican Minecraft Manager",
+    "author": "Boy132 & JackDiSpade21",
     "version": "1.0.7",
     "description": "Easily download minecraft mods & plugins from modrinth",
     "category": "plugin",

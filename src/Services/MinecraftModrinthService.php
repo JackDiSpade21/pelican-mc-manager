@@ -12,13 +12,23 @@ class MinecraftModrinthService
 {
     public function getMinecraftVersion(Server $server): ?string
     {
-        $version = $server->variables()->where(fn($builder) => $builder->where('env_variable', 'MINECRAFT_VERSION')->orWhere('env_variable', 'MC_VERSION'))->first()?->server_value;
-
-        if (!$version || $version === 'latest') {
-            return config('minecraft-modrinth.latest_minecraft_version');
+        // 1. Try from lock file
+        $lock = $this->getLockFileContent($server);
+        if (!empty($lock['core']['version'])) {
+            return $lock['core']['version'];
         }
 
-        return $version;
+        // 2. Try from environment (fallback)
+        $version = $server->variables()->where(fn($builder) => $builder->where('env_variable', 'MINECRAFT_VERSION')->orWhere('env_variable', 'MC_VERSION'))->first()?->server_value;
+
+        return $version ?: null;
+    }
+
+    public function setMinecraftVersion(Server $server, string $version): void
+    {
+        $lockFile = $this->getLockFileContent($server);
+        $lockFile['core']['version'] = $version;
+        $this->saveLockFile($server, $lockFile);
     }
 
     /** @return array{hits: array<int, array<string, mixed>>, total_hits: int} */

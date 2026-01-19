@@ -278,7 +278,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                             }
 
                             $schema[] = Section::make($versionData['name'])
-                                ->description($versionData['version_number'] . ($primaryFile ? ' (' . convert_bytes_to_readable($primaryFile['size']) . ')' : ' (' . trans('minecraft-modrinth::strings.version.no_file_found') . ')'))
+                                ->description($versionData['version_number'] . ($primaryFile ? ' (' . convert_bytes_to_readable($primaryFile['size']) . ')' : ' (' . trans('pelican-mc-manager::strings.version.no_file_found') . ')'))
                                 ->collapsed(!$versionData['featured'])
                                 ->collapsible()
                                 ->icon($versionData['version_type'] === 'alpha' ? 'tabler-circle-letter-a' : ($versionData['version_type'] === 'beta' ? 'tabler-circle-letter-b' : 'tabler-circle-letter-r'))
@@ -314,7 +314,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                                                 MinecraftModrinth::addInstalledPlugin($server, $record, $versionData, $primaryFile);
 
                                                 Notification::make()
-                                                    ->title(trans('minecraft-modrinth::strings.notifications.download_started'))
+                                                    ->title(trans('pelican-mc-manager::strings.notifications.download_started'))
                                                     ->body($versionData['name'])
                                                     ->success()
                                                     ->send();
@@ -322,7 +322,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                                                 report($exception);
 
                                                 Notification::make()
-                                                    ->title(trans('minecraft-modrinth::strings.notifications.download_failed'))
+                                                    ->title(trans('pelican-mc-manager::strings.notifications.download_failed'))
                                                     ->body($exception->getMessage())
                                                     ->danger()
                                                     ->send();
@@ -352,7 +352,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     $this->redirect(static::getUrl(['currentView' => $newView]));
                 }),
             Action::make('open_folder')
-                ->label(fn() => trans('minecraft-modrinth::strings.page.open_folder', ['folder' => $folder]))
+                ->label(fn() => trans('pelican-mc-manager::strings.page.open_folder', ['folder' => $folder]))
                 ->url(fn() => ListFiles::getUrl(['path' => $folder]), true),
         ];
     }
@@ -367,13 +367,14 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                 Grid::make(3)
                     ->schema([
                         TextEntry::make('Minecraft Version')
-                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? trans('minecraft-modrinth::strings.page.unknown'))
-                            ->badge(),
+                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? 'Not installed')
+                            ->badge()
+                            ->color(fn($state) => $state === 'Not installed' ? 'gray' : 'primary'),
                         TextEntry::make('Loader')
-                            ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('minecraft-modrinth::strings.page.unknown'))
+                            ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('pelican-mc-manager::strings.page.unknown'))
                             ->badge(),
                         TextEntry::make('installed')
-                            ->label(fn() => trans('minecraft-modrinth::strings.page.installed', ['type' => ModrinthProjectType::fromServer($server)->getLabel()]))
+                            ->label(fn() => trans('pelican-mc-manager::strings.page.installed', ['type' => ModrinthProjectType::fromServer($server)->getLabel()]))
                             ->state(function () use ($server) {
                                 // Count tracked plugins
                                 return count(MinecraftModrinth::getInstalledProjects($server));
