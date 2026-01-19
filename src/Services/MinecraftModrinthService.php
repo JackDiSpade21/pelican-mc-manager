@@ -100,4 +100,124 @@ class MinecraftModrinthService
             }
         });
     }
+    /** @return array<int, array<string, mixed>> */
+    public function getInstalledProjects(Server $server): array
+    {
+        $projectType = ModrinthProjectType::fromServer($server);
+        if (!$projectType) {
+            return [];
+        }
+
+        $folder = $projectType->getFolder();
+        /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
+        $fileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
+        $fileRepository->setServer($server);
+
+        try {
+            $files = $fileRepository->getDirectory($folder);
+        } catch (Exception $e) {
+            return [];
+        }
+
+        if (isset($files['error'])) {
+            return [];
+        }
+
+        $installed = [];
+
+        foreach ($files as $file) {
+            if ($file['mime'] !== 'application/jar' && !str_ends_with($file['name'], '.jar')) {
+                continue;
+            }
+
+            $cacheKey = "modrinth_installed_{$server->uuid}_{$file['name']}_{$file['size']}_{$file['created']}"; // Use size/created as simple hash/version check
+
+            $metadata = cache()->remember($cacheKey, now()->addDays(7), function () use ($fileRepository, $file, $folder) {
+                // Determine version by inspecting file
+                return $this->inspectJarVersion($fileRepository, $folder, $file['name']);
+            });
+            
+            $installed[] = [
+                'name' => $file['name'],
+                'size' => $file['size'],
+                'date_modified' => $file['modified'],
+                'version' => $metadata['version'] ?? 'Unknown',
+                'description' => $metadata['description'] ?? '',
+                'icon_url' => null, // Local files don't have icons easily available
+                'project_id' => null, // Not linked to Modrinth yet
+                'author' => $metadata['author'] ?? 'Unknown',
+                'downloads' => 0,
+            ];
+        }
+
+        return $installed;
+    }
+
+    private function inspectJarVersion(\App\Repositories\Daemon\DaemonFileRepository $repo, string $folder, string $filename): array
+    {
+        $tempPath = tempnam(sys_get_temp_dir(), 'mc_plugin_');
+        
+        try {
+            $content = $repo->getObject($folder . '/' . $filename);
+            file_put_contents($tempPath, $content);
+
+            $zip = new \ZipArchive();
+            if ($zip->open($tempPath) === true) {
+                // Check for plugin.yml (Spigot/Paper)
+                if (($content = $zip->getFromName('plugin.yml')) !== false) {
+                    $data = yaml_parse($content);
+                    $zip->close();
+                    return [
+                        'version' => $data['version'] ?? null,
+                        'author' => $data['author'] ?? ($data['authors'][0] ?? null),
+                        'description' => $data['description'] ?? null,
+                    ];
+                }
+
+                // Check for fabric.mod.json
+                if (($content = $zip->getFromName('fabric.mod.json')) !== false) {
+                    $data = json_decode($content, true);
+                    $zip->close();
+                    return [
+                        'version' => $data['version'] ?? null,
+                        'author' => $data['authors'][0] ?? null, // Fabric authors can be array of objects or strings
+                        'description' => $data['description'] ?? null,
+                    ];
+                }
+
+                // Check for bungee.yml
+                if (($content = $zip->getFromName('bungee.yml')) !== false) {
+                    $data = yaml_parse($content);
+                    $zip->close();
+                    return [
+                        'version' => $data['version'] ?? null,
+                        'author' => $data['author'] ?? null,
+                        'description' => $data['description'] ?? null,
+                    ];
+                }
+
+                 // Check for velocity-plugin.json
+                 if (($content = $zip->getFromName('velocity-plugin.json')) !== false) {
+                    $data = json_decode($content, true);
+                    $zip->close();
+                    return [
+                        'version' => $data['version'] ?? null,
+                        'author' => $data['authors'][0] ?? null,
+                        'description' => $data['description'] ?? null,
+                    ];
+                }
+                
+                $zip->close();
+            }
+        } catch (Exception $e) {
+            // Log error or ignore?
+            report($e);
+        } finally {
+            if (file_exists($tempPath)) {
+                unlink($tempPath);
+            }
+        }
+
+        return ['version' => null];
+    }
 }

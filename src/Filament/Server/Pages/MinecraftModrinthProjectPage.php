@@ -72,8 +72,41 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
     /**
      * @throws Exception
      */
+    public string $view = 'browse';
+
+    /**
+     * @throws Exception
+     */
     public function table(Table $table): Table
     {
+        if ($this->view === 'installed') {
+            return $table
+                ->query(null) // Reset query
+                ->rows(function () {
+                    /** @var Server $server */
+                    $server = Filament::getTenant();
+                    return MinecraftModrinth::getInstalledProjects($server);
+                })
+                ->columns([
+                    TextColumn::make('name')
+                        ->searchable()
+                        ->sortable(),
+                    TextColumn::make('version')
+                        ->badge()
+                        ->color('info')
+                        ->sortable(),
+                    TextColumn::make('description')
+                        ->limit(50),
+                    TextColumn::make('date_modified')
+                        ->icon('tabler-calendar')
+                        ->formatStateUsing(fn($state) => Carbon::parse($state)->diffForHumans())
+                        ->sortable(),
+                    TextColumn::make('size')
+                        ->formatStateUsing(fn($state) => convert_bytes_to_readable($state))
+                        ->sortable(),
+                ]);
+        }
+
         return $table
             ->records(function (?string $search, int $page) {
                 /** @var Server $server */
@@ -89,9 +122,9 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->label(''),
                 TextColumn::make('title')
                     ->searchable()
-                    ->description(fn (array $record) => (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description']),
+                    ->description(fn(array $record) => (strlen($record['description']) > 120) ? substr($record['description'], 0, 120) . '...' : $record['description']),
                 TextColumn::make('author')
-                    ->url(fn ($state) => "https://modrinth.com/user/$state", true)
+                    ->url(fn($state) => "https://modrinth.com/user/$state", true)
                     ->toggleable(),
                 TextColumn::make('downloads')
                     ->icon('tabler-download')
@@ -99,11 +132,11 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->toggleable(),
                 TextColumn::make('date_modified')
                     ->icon('tabler-calendar')
-                    ->formatStateUsing(fn ($state) => Carbon::parse($state, 'UTC')->diffForHumans())
-                    ->tooltip(fn ($state) => Carbon::parse($state, 'UTC')->timezone(user()->timezone ?? 'UTC')->format($table->getDefaultDateTimeDisplayFormat()))
+                    ->formatStateUsing(fn($state) => Carbon::parse($state, 'UTC')->diffForHumans())
+                    ->tooltip(fn($state) => Carbon::parse($state, 'UTC')->timezone(user()->timezone ?? 'UTC')->format($table->getDefaultDateTimeDisplayFormat()))
                     ->toggleable(),
             ])
-            ->recordUrl(fn (array $record) => "https://modrinth.com/{$record['project_type']}/{$record['slug']}", true)
+            ->recordUrl(fn(array $record) => "https://modrinth.com/{$record['project_type']}/{$record['slug']}", true)
             ->recordActions([
                 Action::make('download')
                     ->schema(function (array $record) {
@@ -186,9 +219,15 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
         $folder = ModrinthProjectType::fromServer($server)->getFolder();
 
         return [
+            Action::make('toggle_view')
+                ->label($this->view === 'browse' ? 'View Installed' : 'Browse Modrinth')
+                ->icon($this->view === 'browse' ? 'tabler-list' : 'tabler-search')
+                ->action(function () {
+                    $this->view = $this->view === 'browse' ? 'installed' : 'browse';
+                }),
             Action::make('open_folder')
-                ->label(fn () => trans('minecraft-modrinth::strings.page.open_folder', ['folder' => $folder]))
-                ->url(fn () => ListFiles::getUrl(['path' => $folder]), true),
+                ->label(fn() => trans('minecraft-modrinth::strings.page.open_folder', ['folder' => $folder]))
+                ->url(fn() => ListFiles::getUrl(['path' => $folder]), true),
         ];
     }
 
@@ -202,13 +241,13 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                 Grid::make(3)
                     ->schema([
                         TextEntry::make('Minecraft Version')
-                            ->state(fn () => MinecraftModrinth::getMinecraftVersion($server) ?? trans('minecraft-modrinth::strings.page.unknown'))
+                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? trans('minecraft-modrinth::strings.page.unknown'))
                             ->badge(),
                         TextEntry::make('Loader')
-                            ->state(fn () => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('minecraft-modrinth::strings.page.unknown'))
+                            ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('minecraft-modrinth::strings.page.unknown'))
                             ->badge(),
                         TextEntry::make('installed')
-                            ->label(fn () => trans('minecraft-modrinth::strings.page.installed', ['type' => ModrinthProjectType::fromServer($server)->getLabel()]))
+                            ->label(fn() => trans('minecraft-modrinth::strings.page.installed', ['type' => ModrinthProjectType::fromServer($server)->getLabel()]))
                             ->state(function (DaemonFileRepository $fileRepository) use ($server) {
                                 try {
                                     $files = $fileRepository->setServer($server)->getDirectory(ModrinthProjectType::fromServer($server)->getFolder());
@@ -218,7 +257,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                                     }
 
                                     return collect($files)
-                                        ->filter(fn ($file) => $file['mime'] === 'application/jar' || str($file['name'])->lower()->endsWith('.jar'))
+                                        ->filter(fn($file) => $file['mime'] === 'application/jar' || str($file['name'])->lower()->endsWith('.jar'))
                                         ->count();
                                 } catch (Exception $exception) {
                                     report($exception);
