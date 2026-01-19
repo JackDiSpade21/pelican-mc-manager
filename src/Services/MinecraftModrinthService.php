@@ -212,6 +212,33 @@ class MinecraftModrinthService
 
         $this->addInstalledPlugin($server, $projectData, $newVersion, $primaryFile);
     }
+    public function deleteInstalledPlugin(Server $server, string $projectId): void
+    {
+        $lockFile = $this->getLockFileContent($server);
+
+        if (!isset($lockFile['plugins'][$projectId])) {
+            throw new Exception("Plugin not found in lock file.");
+        }
+
+        $currentPlugin = $lockFile['plugins'][$projectId];
+
+        /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
+        $fileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
+        $fileRepository->setServer($server);
+
+        // Delete file
+        if (isset($currentPlugin['file_path'])) {
+            try {
+                $fileRepository->deleteFiles($server->uuid, $server->node_id, [$currentPlugin['file_path']]);
+            } catch (Exception $e) {
+                // Ignore deletion errors (file might be already gone), but log it
+                report($e);
+            }
+        }
+
+        unset($lockFile['plugins'][$projectId]);
+        $this->saveLockFile($server, $lockFile);
+    }
 
     protected function getLockFileContent(Server $server): array
     {

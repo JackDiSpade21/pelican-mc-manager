@@ -178,6 +178,21 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                             $updates = MinecraftModrinth::getAvailableUpdates($server);
                             return isset($updates[$record['project_id']]);
                         }),
+                    Action::make('delete')
+                        ->icon('tabler-trash')
+                        ->color('danger')
+                        ->label('Delete')
+                        ->requiresConfirmation()
+                        ->action(function (array $record) {
+                            /** @var Server $server */
+                            $server = Filament::getTenant();
+                            try {
+                                MinecraftModrinth::deleteInstalledPlugin($server, $record['project_id']);
+                                Notification::make()->title('Plugin deleted')->success()->send();
+                            } catch (Exception $e) {
+                                Notification::make()->title('Error deleting plugin')->body($e->getMessage())->danger()->send();
+                            }
+                        }),
                 ])
                 ->columns([
                     ImageColumn::make('icon_url')

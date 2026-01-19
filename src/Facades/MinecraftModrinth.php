@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array<int, array<string, mixed>> getInstalledProjects(Server $server)
  * @method static array getAvailableUpdates(Server $server)
  * @method static void updateInstalledPlugin(Server $server, string $projectId, array $newVersion)
+ * @method static void deleteInstalledPlugin(Server $server, string $projectId)
  * @method static array<int, mixed> getModrinthVersions(string $projectId, Server $server)
  *
  * @see MinecraftModrinthService
