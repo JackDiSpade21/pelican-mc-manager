@@ -146,6 +146,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                             }
 
                             Notification::make()->title('All plugins updated')->success()->send();
+                            $this->redirect(static::getUrl(['currentView' => 'installed']));
                         })
                         ->visible(function () {
                             /** @var Server $server */
@@ -170,6 +171,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                             if (isset($updates[$record['project_id']])) {
                                 MinecraftModrinth::updateInstalledPlugin($server, $record['project_id'], $updates[$record['project_id']]);
                                 Notification::make()->title('Plugin updated')->success()->send();
+                                $this->redirect(static::getUrl(['currentView' => 'installed']));
                             }
                         })
                         ->visible(function (array $record) {
@@ -189,7 +191,8 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                             try {
                                 MinecraftModrinth::deleteInstalledPlugin($server, $record['project_id']);
                                 Notification::make()->title('Plugin deleted')->success()->send();
-                            } catch (Exception $e) {
+                                $this->redirect(static::getUrl(['currentView' => 'installed']));
+                            } catch (\Throwable $e) {
                                 Notification::make()->title('Error deleting plugin')->body($e->getMessage())->danger()->send();
                             }
                         }),

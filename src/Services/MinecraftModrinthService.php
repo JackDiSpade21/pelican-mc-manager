@@ -173,8 +173,8 @@ class MinecraftModrinthService
         // 1. Delete old file
         if (isset($currentPlugin['file_path'])) {
             try {
-                $fileRepository->deleteFiles($server->uuid, $server->node_id, [$currentPlugin['file_path']]);
-            } catch (Exception $e) {
+                $fileRepository->deleteFiles('/', [$currentPlugin['file_path']]);
+            } catch (\Throwable $e) {
                 // Ignore deletion errors (file might be already gone), but log it
                 report($e);
             }
@@ -229,8 +229,10 @@ class MinecraftModrinthService
         // Delete file
         if (isset($currentPlugin['file_path'])) {
             try {
-                $fileRepository->deleteFiles($server->uuid, $server->node_id, [$currentPlugin['file_path']]);
-            } catch (Exception $e) {
+                \Illuminate\Support\Facades\Log::info("MinecraftModrinth: Attempting to delete file: " . $currentPlugin['file_path']);
+                // deleteFiles expects ($root, $files)
+                $fileRepository->deleteFiles('/', [$currentPlugin['file_path']]);
+            } catch (\Throwable $e) {
                 // Ignore deletion errors (file might be already gone), but log it
                 report($e);
             }
