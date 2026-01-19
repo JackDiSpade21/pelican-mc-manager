@@ -72,32 +72,134 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
     /**
      * @throws Exception
      */
-    public string $view = 'browse';
+    #[\Livewire\Attributes\Url]
+    public string $currentView = 'browse';
 
     /**
      * @throws Exception
      */
     public function table(Table $table): Table
     {
-        if ($this->view === 'installed') {
+        if ($this->currentView === 'installed') {
             return $table
-                ->query(null) // Reset query
-                ->rows(function () {
+                ->records(function (?string $search, int $page) use (&$availableUpdates) {
                     /** @var Server $server */
                     $server = Filament::getTenant();
-                    return MinecraftModrinth::getInstalledProjects($server);
+                    $items = MinecraftModrinth::getInstalledProjects($server);
+
+                    if ($search) {
+                        $items = array_filter($items, function ($item) use ($search) {
+                            return stripos($item['name'], $search) !== false;
+                        });
+                    }
+
+                    // We need to pass available updates to actions, maybe store in a temporary property or recalculate?
+                    // Recalculating efficiently might be tricky. Let's try to fetch them here and use closure scope?
+                    // Actually, 'records' returns the data. Actions are defined on the table. 
+                    // Let's use a cached/memoized fetch in the service?
+                    // For now, let's just fetch them. Ideally this is slow so we might want a "Check Updates" button trigger.
+                    // But user asked for it to appear.
+    
+                    return new LengthAwarePaginator(
+                        $items, // Pagination handled by client? No, array slice.
+                        count($items),
+                        20,
+                        1
+                    );
                 })
+                ->records(function (?string $search, int $page) {
+                    /** @var Server $server */
+                    $server = Filament::getTenant();
+                    $items = MinecraftModrinth::getInstalledProjects($server);
+
+                    if ($search) {
+                        $items = array_filter($items, function ($item) use ($search) {
+                            return stripos($item['name'], $search) !== false;
+                        });
+                    }
+
+                    $perPage = 20;
+                    $offset = ($page - 1) * $perPage;
+                    $itemsForCurrentPage = array_slice($items, $offset, $perPage);
+
+                    return new LengthAwarePaginator(
+                        $itemsForCurrentPage,
+                        count($items),
+                        $perPage,
+                        $page
+                    );
+                })
+                ->paginated([20])
+                ->headerActions([
+                    Action::make('update_all')
+                        ->label('Update All')
+                        ->icon('tabler-refresh')
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->action(function () {
+                            /** @var Server $server */
+                            $server = Filament::getTenant();
+                            $updates = MinecraftModrinth::getAvailableUpdates($server); // This might be slow
+            
+                            foreach ($updates as $projectId => $newVersion) {
+                                MinecraftModrinth::updateInstalledPlugin($server, $projectId, $newVersion);
+                            }
+
+                            Notification::make()->title('All plugins updated')->success()->send();
+                        })
+                        ->visible(function () {
+                            /** @var Server $server */
+                            $server = Filament::getTenant();
+                            // Checking here might cause double API calls on render. 
+                            // Optimization: cache getAvailableUpdates results for this request/short duration?
+                            // Service already caches 'getModrinthVersions'. checking updates logic is fast as it uses cached versions.
+                            return count(MinecraftModrinth::getAvailableUpdates($server)) > 0;
+                        }),
+                ])
+                ->actions([
+                    Action::make('update')
+                        ->icon('tabler-refresh')
+                        ->color('warning')
+                        ->label('Update')
+                        ->requiresConfirmation()
+                        ->action(function (array $record) {
+                            /** @var Server $server */
+                            $server = Filament::getTenant();
+                            $updates = MinecraftModrinth::getAvailableUpdates($server);
+
+                            if (isset($updates[$record['project_id']])) {
+                                MinecraftModrinth::updateInstalledPlugin($server, $record['project_id'], $updates[$record['project_id']]);
+                                Notification::make()->title('Plugin updated')->success()->send();
+                            }
+                        })
+                        ->visible(function (array $record) {
+                            /** @var Server $server */
+                            $server = Filament::getTenant();
+                            $updates = MinecraftModrinth::getAvailableUpdates($server);
+                            return isset($updates[$record['project_id']]);
+                        }),
+                ])
                 ->columns([
+                    ImageColumn::make('icon_url')
+                        ->label(''),
                     TextColumn::make('name')
                         ->searchable()
                         ->sortable(),
-                    TextColumn::make('version')
+                    TextColumn::make('version_number')
+                        ->label('Version')
                         ->badge()
-                        ->color('info')
+                        ->color(function (array $record) {
+                            // Highlight outdated versions?
+                            /** @var Server $server */
+                            $server = Filament::getTenant();
+                            $updates = MinecraftModrinth::getAvailableUpdates($server);
+                            return isset($updates[$record['project_id']]) ? 'warning' : 'info';
+                        })
                         ->sortable(),
                     TextColumn::make('description')
                         ->limit(50),
-                    TextColumn::make('date_modified')
+                    TextColumn::make('date_installed')
+                        ->label('Installed')
                         ->icon('tabler-calendar')
                         ->formatStateUsing(fn($state) => Carbon::parse($state)->diffForHumans())
                         ->sortable(),
@@ -184,9 +286,14 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                                 ->headerActions([
                                     Action::make('download')
                                         ->visible(!is_null($primaryFile))
-                                        ->action(function (DaemonFileRepository $fileRepository) use ($server, $versionData, $primaryFile) {
+                                        ->action(function (DaemonFileRepository $fileRepository) use ($server, $versionData, $primaryFile, $record) {
                                             try {
-                                                $fileRepository->setServer($server)->pull($primaryFile['url'], ModrinthProjectType::fromServer($server)->getFolder());
+                                                $folder = ModrinthProjectType::fromServer($server)->getFolder();
+                                                $fileRepository->setServer($server)->pull($primaryFile['url'], $folder);
+
+                                                // Add ID alias for tracking
+                                                $record['id'] = $record['project_id'];
+                                                MinecraftModrinth::addInstalledPlugin($server, $record, $versionData, $primaryFile);
 
                                                 Notification::make()
                                                     ->title(trans('minecraft-modrinth::strings.notifications.download_started'))
@@ -220,10 +327,11 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
 
         return [
             Action::make('toggle_view')
-                ->label($this->view === 'browse' ? 'View Installed' : 'Browse Modrinth')
-                ->icon($this->view === 'browse' ? 'tabler-list' : 'tabler-search')
+                ->label($this->currentView === 'browse' ? 'View Installed' : 'Browse Modrinth')
+                ->icon($this->currentView === 'browse' ? 'tabler-list' : 'tabler-search')
                 ->action(function () {
-                    $this->view = $this->view === 'browse' ? 'installed' : 'browse';
+                    $newView = $this->currentView === 'browse' ? 'installed' : 'browse';
+                    $this->redirect(static::getUrl(['currentView' => $newView]));
                 }),
             Action::make('open_folder')
                 ->label(fn() => trans('minecraft-modrinth::strings.page.open_folder', ['folder' => $folder]))
@@ -248,22 +356,9 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                             ->badge(),
                         TextEntry::make('installed')
                             ->label(fn() => trans('minecraft-modrinth::strings.page.installed', ['type' => ModrinthProjectType::fromServer($server)->getLabel()]))
-                            ->state(function (DaemonFileRepository $fileRepository) use ($server) {
-                                try {
-                                    $files = $fileRepository->setServer($server)->getDirectory(ModrinthProjectType::fromServer($server)->getFolder());
-
-                                    if (isset($files['error'])) {
-                                        throw new Exception($files['error']);
-                                    }
-
-                                    return collect($files)
-                                        ->filter(fn($file) => $file['mime'] === 'application/jar' || str($file['name'])->lower()->endsWith('.jar'))
-                                        ->count();
-                                } catch (Exception $exception) {
-                                    report($exception);
-
-                                    return trans('minecraft-modrinth::strings.page.unknown');
-                                }
+                            ->state(function () use ($server) {
+                                // Count tracked plugins
+                                return count(MinecraftModrinth::getInstalledProjects($server));
                             })
                             ->badge(),
                     ]),
