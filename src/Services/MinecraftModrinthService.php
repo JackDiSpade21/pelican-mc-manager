@@ -301,8 +301,10 @@ class MinecraftModrinthService
         $daemonFileRepository->setServer($server);
 
         // Delete existing server.jar
-        if ($daemonFileRepository->exists($server, 'server.jar')) {
+        try {
             $daemonFileRepository->delete($server, 'server.jar');
+        } catch (\Throwable $e) {
+            // Ignore if file doesn't exist
         }
 
         // Direct stream download and upload to ensure filename is server.jar
@@ -316,7 +318,6 @@ class MinecraftModrinthService
             $content = Http::timeout(60)->get($url)->body();
 
             $daemonFileRepository->putContent(
-                $server,
                 'server.jar',
                 $content
             );

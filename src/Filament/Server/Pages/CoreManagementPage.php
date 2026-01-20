@@ -187,26 +187,33 @@ class CoreManagementPage extends Page implements HasTable
                     ->label('Build')
                     ->searchable()
                     ->sortable()
-                    ->html()
-                    ->formatStateUsing(function (string $state, array $record) {
-                        $channel = $record['channel'] ?? 'UNKNOWN';
-                        $color = match (strtoupper($channel)) {
+                    ->badge()
+                    ->color(function (string $state, array $record) {
+                        // Check if installed
+                        $core = app(\Boy132\MinecraftModrinth\Services\MinecraftModrinthService::class)->getInstalledCore(Filament::getTenant());
+                        if (
+                            ($core['build'] ?? null) == $record['build'] &&
+                            ($core['version'] ?? null) == $this->selectedMinorVersion
+                        ) {
+                            return 'info'; // Blue for installed
+                        }
+
+                        return match (strtoupper($record['channel'] ?? 'UNKNOWN')) {
                             'STABLE', 'RECOMMENDED' => 'success',
                             'BETA' => 'warning',
                             'ALPHA' => 'danger',
                             default => 'gray',
                         };
-
-                        // Using Filament's badge classes or inline styles for simplicity and consistency
-                        // Assuming Tailwind is available as it's Filament
-                        return sprintf(
-                            '%s <span style="--c-50:var(--%s-50);--c-400:var(--%s-400);--c-600:var(--%s-600);" class="fi-badge flex items-center justify-center gap-x-1 rounded-md text-xs font-medium ring-1 ring-inset px-2 min-w-[theme(spacing.6)] py-1 fi-color-custom bg-custom-50 text-custom-600 ring-custom-600/10 dark:bg-custom-400/10 dark:text-custom-400 dark:ring-custom-400/30 ml-2 inline-flex">%s</span>',
-                            $state,
-                            $color,
-                            $color,
-                            $color,
-                            $channel
-                        );
+                    })
+                    ->formatStateUsing(function (string $state, array $record) {
+                        $core = app(\Boy132\MinecraftModrinth\Services\MinecraftModrinthService::class)->getInstalledCore(Filament::getTenant());
+                        if (
+                            ($core['build'] ?? null) == $record['build'] &&
+                            ($core['version'] ?? null) == $this->selectedMinorVersion
+                        ) {
+                            return $state . ' (Installed)';
+                        }
+                        return $state;
                     }),
 
                 TextColumn::make('time')
@@ -223,19 +230,35 @@ class CoreManagementPage extends Page implements HasTable
             ])
             ->actions([
                 Action::make('install')
-                    ->label('Install')
-                    ->button()
-                    ->color('primary')
-                    ->requiresConfirmation()
-                    ->modalHeading('Install Core')
-                    ->modalDescription('Are you sure you want to install this core version? The server will be restarted.')
-                    ->visible(function (array $record) use ($server, $service) {
+                    ->label(function (array $record) use ($server, $service) {
                         $core = $service->getInstalledCore($server);
-                        // Hide if currently installed
-                        return !(
+                        if (
                             ($core['build'] ?? null) == $record['build'] &&
                             ($core['version'] ?? null) == $this->selectedMinorVersion
-                        );
+                        ) {
+                            return 'Reinstall';
+                        }
+                        return 'Install';
+                    })
+                    ->button()
+                    ->color(function (array $record) use ($server, $service) {
+                        $core = $service->getInstalledCore($server);
+                        if (
+                            ($core['build'] ?? null) == $record['build'] &&
+                            ($core['version'] ?? null) == $this->selectedMinorVersion
+                        ) {
+                            return 'warning';
+                        }
+                        return 'primary';
+                    })
+                    ->requiresConfirmation()
+                    ->modalHeading('Install Core')
+                    ->modalDescription(function (array $record) use ($server, $service) {
+                        $core = $service->getInstalledCore($server);
+                        $isInstalled = ($core['build'] ?? null) == $record['build'] && ($core['version'] ?? null) == $this->selectedMinorVersion;
+                        return $isInstalled
+                            ? 'Are you sure you want to reinstall this core version? The server will be restarted.'
+                            : 'Are you sure you want to install this core version? The server will be restarted.';
                     })
                     ->action(function (array $record) use ($server, $service) {
                         // Paper API v3 uses 'server:default' or 'application'
