@@ -2,7 +2,7 @@
 
 Easily download and install Minecraft cores, plugins, and mods directly from Modrinth within the Pelican Panel.
 
-> > [!WARNING]
+> [!WARNING]
 > **DISCLAIMER:** This addon was created by *vibecoding* for personal use as a quick and simple solution for my private Minecraft server network. I do not intend to take credit away from the original creator.  
 >
 > This addon is provided **as is**, without any guarantees or support. Use it **at your own risk**.
