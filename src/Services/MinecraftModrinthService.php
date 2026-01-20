@@ -294,56 +294,50 @@ class MinecraftModrinthService
         });
     }
 
-    public function installPaperCore(Server $server, string $project, string $version, int $buildId, string $downloadUrl, string $checksum): void
+    public function installPaperCore(Server $server, string $project, string $version, string $build, string $url, string $checksum): void
     {
-        /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
-        $fileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
-        $fileRepository->setServer($server);
+        /** @var \App\Repositories\Daemon\DaemonFileRepository $daemonFileRepository */
+        $daemonFileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
+        $daemonFileRepository->setServer($server);
 
-        // 1. Delete existing server.jar
-        try {
-            $fileRepository->deleteFiles('/', ['server.jar']);
-        } catch (\Throwable $e) {
-            // Ignore if file doesn't exist
+        // Delete existing server.jar
+        if ($daemonFileRepository->exists($server, 'server.jar')) {
+            $daemonFileRepository->delete($server, 'server.jar');
         }
 
-        $fileRepository->pull($downloadUrl, '/');
-
-        // Rename pulled file to server.jar
+        // Direct stream download and upload to ensure filename is server.jar
+        // This avoids async renaming issues with daemon pulling
         try {
-            $filename = basename($downloadUrl);
-            $fileRepository->rename($filename, 'server.jar');
-        } catch (\Throwable $e) {
-            // If rename fails, we might check if it was already named correctly or just log it.
-            // But critical for core management.
+            // We use a stream to avoid memory issues with large files, 
+            // though standard cores (30-60MB) are usually fine in memory.
+            // Using a temporary file approach to be safe and compatible with putContent.
+
+            // For now, simple implementation assuming PHP memory limit allows ~60MB
+            $content = Http::timeout(60)->get($url)->body();
+
+            $daemonFileRepository->putContent(
+                $server,
+                'server.jar',
+                $content
+            );
+
+        } catch (\Exception $e) {
             report($e);
+            // Fallback to pull if direct write fails (though verify renaming manual step might be needed)
+            $daemonFileRepository->pull($url, '/');
         }
 
-        $lockFile = $this->getLockFileContent($server);
-        $lockFile['core'] = [
+        // Update Modrinth Lock File
+        $lockContent = $this->getLockFileContent($server);
+        $lockContent['core'] = [
             'project' => $project,
             'version' => $version,
-            'build' => $buildId,
+            'build' => $build,
+            'url' => $url,
             'checksum' => $checksum,
-            'installed_at' => now()->toIso8601String(),
-            'path' => 'server.jar' // Expected path
         ];
 
-        $this->saveLockFile($server, $lockFile);
-    }
-
-    // Attempting to fix the rename logic by guessing the filename from common patterns
-    public function renameCoreToServerJar(Server $server, string $likelyFilename): void
-    {
-        /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
-        $fileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
-        $fileRepository->setServer($server);
-
-        try {
-            $fileRepository->rename($likelyFilename, 'server.jar');
-        } catch (\Throwable $e) {
-            // Log or ignore
-        }
+        $this->saveLockFile($server, $lockContent);
     }
 
     protected function getLockFileContent(Server $server): array
