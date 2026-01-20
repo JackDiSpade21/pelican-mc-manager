@@ -41,16 +41,6 @@ class CoreManagementPage extends Page implements HasTable
     public $selectedMajorVersion = null;
     public $selectedMinorVersion = null;
 
-    public function getHeaderActions(): array
-    {
-        return [
-            Action::make('update_latest')
-                ->label('Update to latest')
-                ->color('success')
-                ->visible(fn() => $this->checkUpdateAvailable())
-                ->action(fn() => $this->updateToLatest()),
-        ];
-    }
 
     public function getTitle(): string
     {
@@ -128,6 +118,12 @@ class CoreManagementPage extends Page implements HasTable
         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
 
         return $table
+            ->headerActions([
+                Action::make('updateToLatest')
+                    ->label('Update to latest')
+                    ->visible(fn() => $this->checkUpdateAvailable())
+                    ->action(fn() => $this->updateToLatest()),
+            ])
             ->records(function (?string $search, int $page) use ($server, $service) {
                 $builds = [];
                 try {
@@ -187,17 +183,21 @@ class CoreManagementPage extends Page implements HasTable
                     ->label('Build')
                     ->searchable()
                     ->sortable()
-                    ->badge()
-                    ->color(function (string $state, array $record) {
-                        // Check if installed
+                    ->html()
+                    ->formatStateUsing(function (string $state, array $record) {
                         $core = app(\Boy132\MinecraftModrinth\Services\MinecraftModrinthService::class)->getInstalledCore(Filament::getTenant());
                         if (
                             ($core['build'] ?? null) == $record['build'] &&
                             ($core['version'] ?? null) == $this->selectedMinorVersion
                         ) {
-                            return 'info'; // Blue for installed
+                            return $state . ' <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-400/10 dark:text-blue-400 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-400/20 ml-2">Installed</span>';
                         }
+                        return $state;
+                    }),
 
+                TextColumn::make('channel')
+                    ->badge()
+                    ->color(function (array $record) {
                         return match (strtoupper($record['channel'] ?? 'UNKNOWN')) {
                             'STABLE', 'RECOMMENDED' => 'success',
                             'BETA' => 'warning',
@@ -205,16 +205,7 @@ class CoreManagementPage extends Page implements HasTable
                             default => 'gray',
                         };
                     })
-                    ->formatStateUsing(function (string $state, array $record) {
-                        $core = app(\Boy132\MinecraftModrinth\Services\MinecraftModrinthService::class)->getInstalledCore(Filament::getTenant());
-                        if (
-                            ($core['build'] ?? null) == $record['build'] &&
-                            ($core['version'] ?? null) == $this->selectedMinorVersion
-                        ) {
-                            return $state . ' (Installed)';
-                        }
-                        return $state;
-                    }),
+                    ->formatStateUsing(fn(string $state) => strtoupper($state)),
 
                 TextColumn::make('time')
                     ->label('Release Date')
@@ -378,13 +369,22 @@ class CoreManagementPage extends Page implements HasTable
         // Fetch latest build for this version
         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
         $response = $service->getPaperBuilds($core['project'] ?? 'paper', $core['version']);
-        $builds = $response['builds'] ?? [];
-        if (empty($builds))
+
+        $rawBuilds = $response['builds'] ?? $response ?? [];
+        if (isset($rawBuilds['builds'])) {
+            $rawBuilds = $rawBuilds['builds'];
+        }
+
+        if (empty($rawBuilds) || !is_array($rawBuilds))
             return false;
 
-        $latest = end($builds);
+        $latest = end($rawBuilds);
+        // If it's an API v3 object, get 'id', otherwise it's the build ID itself (v2)
+        $latestId = is_array($latest) ? ($latest['id'] ?? $latest['build'] ?? 0) : $latest;
 
-        return $latest['build'] > $core['build'];
+        $installedId = $core['build'];
+
+        return (string) $latestId !== (string) $installedId;
     }
 
     protected function updateToLatest(): void
@@ -394,24 +394,46 @@ class CoreManagementPage extends Page implements HasTable
         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
 
         $response = $service->getPaperBuilds($core['project'], $core['version']);
-        $builds = $response['builds'] ?? [];
 
-        $latest = !empty($builds) ? end($builds) : null;
+        $rawBuilds = $response['builds'] ?? $response ?? [];
+        if (isset($rawBuilds['builds'])) {
+            $rawBuilds = $rawBuilds['builds'];
+        }
 
-        if ($latest) {
-            $download = $latest['downloads']['application'] ?? $latest['downloads']['server:default'] ?? null;
-            if ($download) {
-                $service->installPaperCore(
-                    $server,
-                    $core['project'],
-                    $core['version'],
-                    $latest['build'],
-                    $download['url'],
-                    $download['checksums']['sha256'] ?? ''
-                );
+        if (empty($rawBuilds) || !is_array($rawBuilds)) {
+            \Filament\Notifications\Notification::make()->title('No builds found')->danger()->send();
+            return;
+        }
 
-                \Filament\Notifications\Notification::make()->title('Updated to build ' . $latest['build'])->success()->send();
-            }
+        $latest = end($rawBuilds);
+
+        // Handle API v3 downloads structure
+        if (isset($latest['downloads'])) {
+            $downloads = $latest['downloads'];
+            $download = $downloads['application'] ?? $downloads['server:default'] ?? null;
+        } else {
+            // Fallback for API v2 if builds are just IDs (shouldn't happen with getPaperBuilds but good to be safe)
+            \Filament\Notifications\Notification::make()->title('Cannot determine download URL')->danger()->send();
+            return;
+        }
+
+        if ($download) {
+            // Get build ID safely
+            $latestId = is_array($latest) ? ($latest['id'] ?? $latest['build'] ?? 'latest') : 'latest';
+
+            $service->installPaperCore(
+                $server,
+                $core['project'],
+                $core['version'],
+                $latestId,
+                $download['url'],
+                $download['checksums']['sha256'] ?? ''
+            );
+
+            \Filament\Notifications\Notification::make()->title('Updated to build ' . $latestId)->success()->send();
+            $this->dispatch('refresh');
+        } else {
+            \Filament\Notifications\Notification::make()->title('Download not found for latest build')->danger()->send();
         }
     }
 }
