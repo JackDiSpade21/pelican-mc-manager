@@ -166,14 +166,70 @@ class MinecraftModrinthService
         $installed = $this->getInstalledProjects($server);
         $updates = [];
 
+        $minecraftLoader = MinecraftLoader::fromServer($server)?->value;
+        if (!$minecraftLoader) {
+            return [];
+        }
+        $minecraftVersion = $this->getMinecraftVersion($server);
+
+        // 1. Identify missing cache items
+        $missingProjects = [];
+        $projectIdToCacheKey = [];
+
         foreach ($installed as $plugin) {
-            $versions = $this->getModrinthVersions($plugin['project_id'], $server);
+            $projectId = $plugin['project_id'];
+            // We use the default compatibility check here (ignoreCompatibility = false)
+            $cacheKey = "modrinth_versions:$projectId:$minecraftVersion:$minecraftLoader:compat";
+
+            if (!cache()->has($cacheKey)) {
+                $missingProjects[] = $projectId;
+            }
+            $projectIdToCacheKey[$projectId] = $cacheKey;
+        }
+
+        // 2. Fetch missing items in parallel
+        if (!empty($missingProjects)) {
+            $responses = Http::pool(function (\Illuminate\Http\Client\Pool $pool) use ($missingProjects, $minecraftVersion, $minecraftLoader) {
+                $pools = [];
+                $data = [
+                    'game_versions' => "[\"$minecraftVersion\"]",
+                    'loaders' => "[\"$minecraftLoader\"]",
+                ];
+
+                foreach ($missingProjects as $projectId) {
+                    $pools[] = $pool->as($projectId)
+                        ->timeout(5)
+                        ->connectTimeout(5)
+                        ->get("https://api.modrinth.com/v2/project/$projectId/version", $data);
+                }
+                return $pools;
+            });
+
+            // 3. Cache the results
+            foreach ($responses as $projectId => $response) {
+                /** @var \Illuminate\Http\Client\Response $response */
+                if ($response->ok()) {
+                    $versions = $response->json();
+                    cache()->put($projectIdToCacheKey[$projectId], $versions, now()->addMinutes(30));
+                } else {
+                    // Cache empty array on failure to prevent repeated failures? 
+                    // Or maybe short cache? Let's cache empty for now to be safe and fast.
+                    cache()->put($projectIdToCacheKey[$projectId], [], now()->addMinutes(5));
+                    report($response->toException());
+                }
+            }
+        }
+
+        // 4. Compute updates using cached data
+        foreach ($installed as $plugin) {
+            $cacheKey = $projectIdToCacheKey[$plugin['project_id']];
+            $versions = cache()->get($cacheKey, []);
 
             if (empty($versions)) {
                 continue;
             }
 
-            // Assume first version is latest compatible due to filters in getModrinthVersions
+            // Assume first version is latest compatible due to filters
             $latestVersion = $versions[0];
 
             if ($latestVersion['id'] !== $plugin['version_id']) {
