@@ -378,7 +378,14 @@ class CoreManagementPage extends Page implements HasTable
         if (empty($rawBuilds) || !is_array($rawBuilds))
             return false;
 
-        $latest = end($rawBuilds);
+        // Explicitly sort builds descending to ensure we get the latest
+        usort($rawBuilds, function ($a, $b) {
+            $idA = is_array($a) ? ($a['id'] ?? $a['build'] ?? 0) : $a;
+            $idB = is_array($b) ? ($b['id'] ?? $b['build'] ?? 0) : $b;
+            return (int) $idB <=> (int) $idA;
+        });
+
+        $latest = $rawBuilds[0];
         // If it's an API v3 object, get 'id', otherwise it's the build ID itself (v2)
         $latestId = is_array($latest) ? ($latest['id'] ?? $latest['build'] ?? 0) : $latest;
 
@@ -405,7 +412,14 @@ class CoreManagementPage extends Page implements HasTable
             return;
         }
 
-        $latest = end($rawBuilds);
+        // Explicitly sort builds descending to ensure we get the latest
+        usort($rawBuilds, function ($a, $b) {
+            $idA = is_array($a) ? ($a['id'] ?? $a['build'] ?? 0) : $a;
+            $idB = is_array($b) ? ($b['id'] ?? $b['build'] ?? 0) : $b;
+            return (int) $idB <=> (int) $idA;
+        });
+
+        $latest = $rawBuilds[0];
 
         // Handle API v3 downloads structure
         if (isset($latest['downloads'])) {
