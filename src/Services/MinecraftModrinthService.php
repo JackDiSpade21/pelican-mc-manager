@@ -38,7 +38,7 @@ class MinecraftModrinthService
     }
 
     /** @return array{hits: array<int, array<string, mixed>>, total_hits: int} */
-    public function getModrinthProjects(Server $server, int $page = 1, ?string $search = null): array
+    public function getModrinthProjects(Server $server, int $page = 1, ?string $search = null, bool $showIncompatible = false): array
     {
         $projectType = ModrinthProjectType::fromServer($server)?->value;
         $minecraftLoader = MinecraftLoader::fromServer($server)?->value;
@@ -52,13 +52,22 @@ class MinecraftModrinthService
 
         $minecraftVersion = $this->getMinecraftVersion($server);
 
+        $facets = [
+            ["categories:$minecraftLoader"],
+            ["project_type:{$projectType}"],
+        ];
+
+        if (!$showIncompatible) {
+            $facets[] = ["versions:$minecraftVersion"];
+        }
+
         $data = [
             'offset' => ($page - 1) * 20,
             'limit' => 20,
-            'facets' => "[[\"categories:$minecraftLoader\"],[\"versions:$minecraftVersion\"],[\"project_type:{$projectType}\"]]",
+            'facets' => json_encode($facets),
         ];
 
-        $key = "modrinth_projects:{$projectType}:$minecraftVersion:$minecraftLoader:$page";
+        $key = "modrinth_projects:{$projectType}:$minecraftVersion:$minecraftLoader:$page:" . ($showIncompatible ? 'all' : 'compat');
 
         if ($search) {
             $data['query'] = $search;
@@ -86,7 +95,7 @@ class MinecraftModrinthService
     }
 
     /** @return array<int, mixed> */
-    public function getModrinthVersions(string $projectId, Server $server): array
+    public function getModrinthVersions(string $projectId, Server $server, bool $ignoreCompatibility = false): array
     {
         $minecraftLoader = MinecraftLoader::fromServer($server)?->value;
 
@@ -97,11 +106,14 @@ class MinecraftModrinthService
         $minecraftVersion = $this->getMinecraftVersion($server);
 
         $data = [
-            'game_versions' => "[\"$minecraftVersion\"]",
             'loaders' => "[\"$minecraftLoader\"]",
         ];
 
-        return cache()->remember("modrinth_versions:$projectId:$minecraftVersion:$minecraftLoader", now()->addMinutes(30), function () use ($projectId, $data) {
+        if (!$ignoreCompatibility) {
+            $data['game_versions'] = "[\"$minecraftVersion\"]";
+        }
+
+        return cache()->remember("modrinth_versions:$projectId:$minecraftVersion:$minecraftLoader:" . ($ignoreCompatibility ? 'all' : 'compat'), now()->addMinutes(30), function () use ($projectId, $data) {
             try {
                 return Http::asJson()
                     ->timeout(5)

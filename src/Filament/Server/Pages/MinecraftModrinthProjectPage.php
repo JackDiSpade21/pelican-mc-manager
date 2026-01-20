@@ -75,6 +75,8 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
     #[\Livewire\Attributes\Url]
     public string $currentView = 'browse';
 
+    public bool $showIncompatible = false;
+
     /**
      * @throws Exception
      */
@@ -228,11 +230,20 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
         }
 
         return $table
+            ->headerActions([
+                Action::make('toggle_incompatible')
+                    ->label('Show Incompatible')
+                    ->icon(fn() => $this->showIncompatible ? 'tabler-eye' : 'tabler-eye-off')
+                    ->color(fn() => $this->showIncompatible ? 'warning' : 'gray')
+                    ->action(function () {
+                        $this->showIncompatible = !$this->showIncompatible;
+                    }),
+            ])
             ->records(function (?string $search, int $page) {
                 /** @var Server $server */
                 $server = Filament::getTenant();
 
-                $response = MinecraftModrinth::getModrinthProjects($server, $page, $search);
+                $response = MinecraftModrinth::getModrinthProjects($server, $page, $search, $this->showIncompatible);
 
                 return new LengthAwarePaginator($response['hits'], $response['total_hits'], 20, $page);
             })
@@ -265,7 +276,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                         /** @var Server $server */
                         $server = Filament::getTenant();
 
-                        $versions = array_slice(MinecraftModrinth::getModrinthVersions($record['project_id'], $server), 0, 10);
+                        $versions = array_slice(MinecraftModrinth::getModrinthVersions($record['project_id'], $server, $this->showIncompatible), 0, 5);
                         foreach ($versions as $versionData) {
                             $files = $versionData['files'] ?? [];
                             $primaryFile = null;
