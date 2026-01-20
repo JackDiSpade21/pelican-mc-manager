@@ -143,20 +143,29 @@ class CoreManagementPage extends Page implements HasTable
                         // Verify it's an array before processing
                         if (is_array($rawBuilds)) {
                             // Sort builds descending (newest first)
-                            rsort($rawBuilds);
+                            usort($rawBuilds, function ($a, $b) {
+                                $idA = is_array($a) ? ($a['id'] ?? 0) : $a;
+                                $idB = is_array($b) ? ($b['id'] ?? 0) : $b;
+                                return $idB <=> $idA;
+                            });
 
-                            // Map simple integers to associative array for Filament table
-                            $builds = array_map(function ($build) {
-                                // If it's already an array/object needed by some other logic, keep it, 
-                                // but for Paper API v3 /projects/{project}/versions/{version}/builds it returns ints.
-                                // We check if it's not array just to be safe if API changes or we use another endpoint.
-                                return is_array($build) ? $build : ['build' => $build];
+                            // Map API response to Filament table structure
+                            $builds = array_map(function ($item) {
+                                if (is_array($item)) {
+                                    // Full object response (API v3)
+                                    // Map 'id' to 'build' for table column compatibility
+                                    $item['build'] = $item['id'] ?? 'Unknown';
+                                    return $item;
+                                } else {
+                                    // Simple integer response (fallback)
+                                    return ['build' => $item, 'id' => $item];
+                                }
                             }, $rawBuilds);
                         }
                     }
                 } catch (\Throwable $e) {
                     report($e);
-                    // Return empty list on error to prevent page crash
+                    // Return empty list on error
                     $builds = [];
                 }
 
@@ -175,24 +184,18 @@ class CoreManagementPage extends Page implements HasTable
             ->paginated([10, 25, 50])
             ->columns([
                 TextColumn::make('build')
-                    ->label('Build ID'),
-                TextColumn::make('channel')
-                    ->badge()
-                    ->color(fn(string $state): string => match ($state) {
-                        'default', 'STABLE' => 'success',
-                        'experimental', 'BETA' => 'warning',
-                        'ALPHA' => 'danger',
-                        default => 'gray',
-                    }),
+                    ->label('Build ID')
+                    ->searchable()
+                    ->sortable(),
                 TextColumn::make('time')
-                    ->dateTime(),
-                TextColumn::make('changes.0.message')
-                    ->label('Message')
-                    ->limit(50)
-                    ->tooltip(fn($record) => $record['changes'][0]['message'] ?? ''),
-                TextColumn::make('downloads.application.size')
-                    ->label('Size')
-                    ->formatStateUsing(fn($state, $record) => $this->formatSize($record['downloads']['application']['size'] ?? $record['downloads']['server:default']['size'] ?? 0)),
+                    ->label('Release Date')
+                    ->dateTime()
+                    ->sortable(),
+                TextColumn::make('changes')
+                    ->label('Changes')
+                    ->state(function (array $record) {
+                        return count($record['commits'] ?? []) . ' commits';
+                    }),
             ])
             ->actions([
                 Action::make('install')
@@ -200,10 +203,20 @@ class CoreManagementPage extends Page implements HasTable
                     ->button()
                     ->color('primary')
                     ->requiresConfirmation()
+                    ->modalHeading('Install Core')
+                    ->modalDescription('Are you sure you want to install this core version? The server will be restarted.')
                     ->action(function (array $record) use ($server, $service) {
-                        $download = $record['downloads']['application'] ?? $record['downloads']['server:default'] ?? null;
-                        if (!$download) {
-                            Notification::make()->title('Download not found')->danger()->send();
+                        // Paper API v3 uses 'server:default' or 'application'
+                        $downloads = $record['downloads'] ?? [];
+                        $download = $downloads['server:default'] ?? $downloads['application'] ?? null;
+
+                        // Fallback to first element if specific keys missing
+                        if (!$download && !empty($downloads)) {
+                            $download = reset($downloads);
+                        }
+
+                        if (!$download || !isset($download['url'])) {
+                            Notification::make()->title('Download URL not found')->danger()->send();
                             return;
                         }
 
