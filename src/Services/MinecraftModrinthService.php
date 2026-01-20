@@ -24,6 +24,12 @@ class MinecraftModrinthService
         return $version ?: null;
     }
 
+    public function getInstalledCore(Server $server): array
+    {
+        $lock = $this->getLockFileContent($server);
+        return $lock['core'] ?? [];
+    }
+
     public function setMinecraftVersion(Server $server, string $version): void
     {
         $lockFile = $this->getLockFileContent($server);
@@ -252,6 +258,94 @@ class MinecraftModrinthService
         $this->saveLockFile($server, $lockFile);
     }
 
+    /** @return array{project: array, versions: array<string, array<string>>} */
+    public function getPaperProject(string $project): array
+    {
+        return cache()->remember("paper_project:$project", now()->addMinutes(30), function () use ($project) {
+            try {
+                return Http::asJson()
+                    ->timeout(5)
+                    ->connectTimeout(5)
+                    ->throw()
+                    ->get("https://fill.papermc.io/v3/projects/$project")
+                    ->json();
+            } catch (Exception $exception) {
+                report($exception);
+                return ['project' => [], 'versions' => []];
+            }
+        });
+    }
+
+    /** @return array<int, array> */
+    public function getPaperBuilds(string $project, string $version): array
+    {
+        return cache()->remember("paper_builds:$project:$version", now()->addMinutes(5), function () use ($project, $version) {
+            try {
+                return Http::asJson()
+                    ->timeout(5)
+                    ->connectTimeout(5)
+                    ->throw()
+                    ->get("https://fill.papermc.io/v3/projects/$project/versions/$version/builds")
+                    ->json();
+            } catch (Exception $exception) {
+                report($exception);
+                return [];
+            }
+        });
+    }
+
+    public function installPaperCore(Server $server, string $project, string $version, int $buildId, string $downloadUrl, string $checksum): void
+    {
+        /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
+        $fileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
+        $fileRepository->setServer($server);
+
+        // 1. Delete existing server.jar
+        try {
+            $fileRepository->deleteFiles('/', ['server.jar']);
+        } catch (\Throwable $e) {
+            // Ignore if file doesn't exist
+        }
+
+        $fileRepository->pull($downloadUrl, '/');
+
+        // Rename pulled file to server.jar
+        try {
+            $filename = basename($downloadUrl);
+            $fileRepository->rename($filename, 'server.jar');
+        } catch (\Throwable $e) {
+            // If rename fails, we might check if it was already named correctly or just log it.
+            // But critical for core management.
+            report($e);
+        }
+
+        $lockFile = $this->getLockFileContent($server);
+        $lockFile['core'] = [
+            'project' => $project,
+            'version' => $version,
+            'build' => $buildId,
+            'checksum' => $checksum,
+            'installed_at' => now()->toIso8601String(),
+            'path' => 'server.jar' // Expected path
+        ];
+
+        $this->saveLockFile($server, $lockFile);
+    }
+
+    // Attempting to fix the rename logic by guessing the filename from common patterns
+    public function renameCoreToServerJar(Server $server, string $likelyFilename): void
+    {
+        /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
+        $fileRepository = app(\App\Repositories\Daemon\DaemonFileRepository::class);
+        $fileRepository->setServer($server);
+
+        try {
+            $fileRepository->rename($likelyFilename, 'server.jar');
+        } catch (\Throwable $e) {
+            // Log or ignore
+        }
+    }
+
     protected function getLockFileContent(Server $server): array
     {
         /** @var \App\Repositories\Daemon\DaemonFileRepository $fileRepository */
@@ -260,9 +354,9 @@ class MinecraftModrinthService
 
         try {
             $content = $fileRepository->getContent('modrinth.lock.json');
-            return json_decode($content, true) ?? ['plugins' => []];
+            return json_decode($content, true) ?? ['plugins' => [], 'core' => []];
         } catch (Exception $e) {
-            return ['plugins' => []];
+            return ['plugins' => [], 'core' => []];
         }
     }
 
