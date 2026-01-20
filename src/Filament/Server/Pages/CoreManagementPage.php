@@ -20,6 +20,10 @@ use Filament\Forms\Components\TextInput;
 
 use Filament\Forms\Components\Select;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Filament\Infolists\Components\TextEntry;
+use Boy132\MinecraftModrinth\Enums\MinecraftLoader;
+use Boy132\MinecraftModrinth\Enums\ModrinthProjectType;
+use Boy132\MinecraftModrinth\Facades\MinecraftModrinth;
 
 class CoreManagementPage extends Page implements HasTable
 {
@@ -58,18 +62,29 @@ class CoreManagementPage extends Page implements HasTable
         // Init logic
         $this->selectedProject = 'paper';
 
-        // Try to pre-select based on installed version
         $server = $this->getServer();
         $core = \Boy132\MinecraftModrinth\Facades\MinecraftModrinth::getInstalledCore($server);
 
+        // 1. Try to use installed core info
         if (!empty($core['version'])) {
+            if (!empty($core['project'])) {
+                $this->selectedProject = $core['project'];
+            }
+
             // Basic parsing attempt, assuming format 1.x.y
-            // The API returns major versions like "1.21" which contains "1.21.1"
-            // We'll perform a best effort match when fetching data
             $parts = explode('.', $core['version']);
             if (count($parts) >= 2) {
-                $this->selectedMajorVersion = $parts[0] . '.' . $parts[1]; // 1.21
+                // Paper API usually uses versions like "1.21" for major
+                // If version is "1.21.1", major is likely "1.21"
+                // Ideally we would double check against API, but for pre-select best effort is fine.
+                $this->selectedMajorVersion = $parts[0] . '.' . $parts[1];
                 $this->selectedMinorVersion = $core['version'];
+            }
+        } else {
+            // 2. If not installed, try to detect from server tags (Egg)
+            $loader = \Boy132\MinecraftModrinth\Enums\MinecraftLoader::fromServer($server);
+            if ($loader === \Boy132\MinecraftModrinth\Enums\MinecraftLoader::Velocity) {
+                $this->selectedProject = 'velocity';
             }
         }
     }
@@ -113,32 +128,51 @@ class CoreManagementPage extends Page implements HasTable
         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
 
         return $table
-            ->records(function () use ($server, $service) {
-                // Fetch project data (cached or explicit?)
-                // Note: The UI separates project/version selection from the table list.
-                // The table only shows BUILDS if specific major/minor is selected.
-    
+            ->records(function (?string $search, int $page) use ($server, $service) {
                 $builds = [];
-                if ($this->selectedProject && $this->selectedMajorVersion && $this->selectedMinorVersion) {
-                    $response = $service->getPaperBuilds($this->selectedProject, $this->selectedMinorVersion);
-                    $rawBuilds = $response['builds'] ?? $response ?? []; // API usually returns {builds: [...]} or [...] array
-    
-                    if (isset($rawBuilds['builds'])) {
-                        $rawBuilds = $rawBuilds['builds'];
-                    }
+                try {
+                    if ($this->selectedProject && $this->selectedMajorVersion && $this->selectedMinorVersion) {
+                        $response = $service->getPaperBuilds($this->selectedProject, $this->selectedMinorVersion);
 
-                    // Reverse to show latest first
-                    $builds = array_reverse($rawBuilds);
+                        // Handle varied response structures safely
+                        $rawBuilds = $response['builds'] ?? $response ?? [];
+                        if (isset($rawBuilds['builds'])) {
+                            $rawBuilds = $rawBuilds['builds'];
+                        }
+
+                        // Verify it's an array before processing
+                        if (is_array($rawBuilds)) {
+                            // Sort builds descending (newest first)
+                            rsort($rawBuilds);
+
+                            // Map simple integers to associative array for Filament table
+                            $builds = array_map(function ($build) {
+                                // If it's already an array/object needed by some other logic, keep it, 
+                                // but for Paper API v3 /projects/{project}/versions/{version}/builds it returns ints.
+                                // We check if it's not array just to be safe if API changes or we use another endpoint.
+                                return is_array($build) ? $build : ['build' => $build];
+                            }, $rawBuilds);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                    // Return empty list on error to prevent page crash
+                    $builds = [];
                 }
 
-                // Return paginator as expected by Filament (even if we just put everything in one page for now)
+                // Manual pagination similar to reference implementation
+                $perPage = 10;
+                $offset = ($page - 1) * $perPage;
+                $itemsForCurrentPage = array_slice($builds, $offset, $perPage);
+
                 return new LengthAwarePaginator(
-                    $builds,
+                    $itemsForCurrentPage,
                     count($builds),
-                    count($builds) > 0 ? count($builds) : 10,
-                    1
+                    $perPage,
+                    $page
                 );
             })
+            ->paginated([10, 25, 50])
             ->columns([
                 TextColumn::make('build')
                     ->label('Build ID'),
@@ -204,49 +238,33 @@ class CoreManagementPage extends Page implements HasTable
 
     public function content(Schema $schema): Schema
     {
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
         return $schema
             ->components([
-                Section::make('Core Info')
-                    ->columns(4)
+                Grid::make(3)
                     ->schema([
-                        ViewField::make('info_box')
-                            ->view('filament.forms.components.placeholder')
-                            ->hidden(),
+                        TextEntry::make('Minecraft Version')
+                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? 'Not installed')
+                            ->badge()
+                            ->color(fn($state) => $state === 'Not installed' ? 'gray' : 'primary'),
 
-                        TextInput::make('current_version')
-                            ->label('Minecraft Version')
-                            ->disabled()
-                            ->formatStateUsing(fn() => \Boy132\MinecraftModrinth\Facades\MinecraftModrinth::getMinecraftVersion($this->getServer()) ?? 'Not installed'),
+                        TextEntry::make('Loader')
+                            ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? 'Unknown')
+                            ->badge(),
 
-                        TextInput::make('loader')
-                            ->label('Loader')
-                            ->disabled()
-                            ->default('Paper'),
-
-                        TextInput::make('installed_build')
+                        TextEntry::make('installed_build')
                             ->label('Installed Build')
-                            ->disabled()
-                            ->formatStateUsing(fn() => \Boy132\MinecraftModrinth\Facades\MinecraftModrinth::getInstalledCore($this->getServer())['build'] ?? 'None'),
-
-
+                            ->state(fn() => MinecraftModrinth::getInstalledCore($server)['build'] ?? 'None')
+                            ->badge()
+                            ->color(fn($state) => $state === 'None' ? 'gray' : 'success'),
                     ]),
 
                 Section::make('Version Selection')
                     ->schema([
-                        Grid::make(3)
+                        Grid::make(2)
                             ->schema([
-                                Select::make('selectedProject')
-                                    ->label('Project')
-                                    ->options([
-                                        'paper' => 'Paper',
-                                        'velocity' => 'Velocity',
-                                    ])
-                                    ->live()
-                                    ->afterStateUpdated(function () {
-                                        $this->selectedMajorVersion = null;
-                                        $this->selectedMinorVersion = null;
-                                    }),
-
                                 Select::make('selectedMajorVersion')
                                     ->label('Major Version')
                                     ->live()
@@ -254,7 +272,9 @@ class CoreManagementPage extends Page implements HasTable
                                         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
                                         $projectData = $service->getPaperProject($this->selectedProject ?? 'paper');
                                         $versions = array_keys($projectData['versions'] ?? []);
-                                        rsort($versions);
+                                        usort($versions, function ($a, $b) {
+                                            return version_compare($b, $a);
+                                        });
                                         return array_combine($versions, $versions);
                                     })
                                     ->afterStateUpdated(function () {
@@ -270,6 +290,9 @@ class CoreManagementPage extends Page implements HasTable
                                         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
                                         $projectData = $service->getPaperProject($this->selectedProject ?? 'paper');
                                         $minors = $projectData['versions'][$this->selectedMajorVersion] ?? [];
+                                        usort($minors, function ($a, $b) {
+                                            return version_compare($b, $a);
+                                        });
                                         return array_combine($minors, $minors);
                                     }),
                             ]),
