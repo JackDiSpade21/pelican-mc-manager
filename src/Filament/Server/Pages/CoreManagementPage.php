@@ -35,7 +35,10 @@ class CoreManagementPage extends Page implements HasTable
 
     protected static ?int $navigationSort = 20;
 
-    protected static ?string $navigationLabel = 'Core Management';
+    public static function getNavigationLabel(): string
+    {
+        return trans('pelican-mc-manager::strings.page.core_management');
+    }
 
     public $selectedProject = 'paper';
     public $selectedMajorVersion = null;
@@ -44,7 +47,7 @@ class CoreManagementPage extends Page implements HasTable
 
     public function getTitle(): string
     {
-        return 'Core Management';
+        return trans('pelican-mc-manager::strings.page.core_management');
     }
 
     public function mount(): void
@@ -120,7 +123,7 @@ class CoreManagementPage extends Page implements HasTable
         return $table
             ->headerActions([
                 Action::make('updateToLatest')
-                    ->label('Update to latest')
+                    ->label(trans('pelican-mc-manager::strings.actions.update_to_latest'))
                     ->visible(fn() => $this->checkUpdateAvailable())
                     ->action(fn() => $this->updateToLatest()),
             ])
@@ -180,7 +183,7 @@ class CoreManagementPage extends Page implements HasTable
             ->paginated([10, 25, 50])
             ->columns([
                 TextColumn::make('build')
-                    ->label('Build')
+                    ->label(trans('pelican-mc-manager::strings.page.build'))
                     ->searchable()
                     ->sortable()
                     ->html()
@@ -190,7 +193,7 @@ class CoreManagementPage extends Page implements HasTable
                             ($core['build'] ?? null) == $record['build'] &&
                             ($core['version'] ?? null) == $this->selectedMinorVersion
                         ) {
-                            return $state . ' <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-400/10 dark:text-blue-400 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-400/20 ml-2">Installed</span>';
+                            return $state . ' <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-400/10 dark:text-blue-400 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-400/20 ml-2">' . trans('pelican-mc-manager::strings.page.installed_badge') . '</span>';
                         }
                         return $state;
                     }),
@@ -208,13 +211,13 @@ class CoreManagementPage extends Page implements HasTable
                     ->formatStateUsing(fn(string $state) => strtoupper($state)),
 
                 TextColumn::make('time')
-                    ->label('Release Date')
+                    ->label(trans('pelican-mc-manager::strings.page.release_date'))
                     ->dateTime()
                     ->sortable()
                     ->toggleable(),
 
                 TextColumn::make('commits.0.message')
-                    ->label('Changes')
+                    ->label(trans('pelican-mc-manager::strings.page.changes'))
                     ->limit(50)
                     ->tooltip(fn($record) => $record['commits'][0]['message'] ?? '')
                     ->wrap(),
@@ -227,9 +230,9 @@ class CoreManagementPage extends Page implements HasTable
                             ($core['build'] ?? null) == $record['build'] &&
                             ($core['version'] ?? null) == $this->selectedMinorVersion
                         ) {
-                            return 'Reinstall';
+                            return trans('pelican-mc-manager::strings.actions.reinstall');
                         }
-                        return 'Install';
+                        return trans('pelican-mc-manager::strings.actions.install');
                     })
                     ->button()
                     ->color(function (array $record) use ($server, $service) {
@@ -243,13 +246,13 @@ class CoreManagementPage extends Page implements HasTable
                         return 'primary';
                     })
                     ->requiresConfirmation()
-                    ->modalHeading('Install Core')
+                    ->modalHeading(trans('pelican-mc-manager::strings.modals.install_core'))
                     ->modalDescription(function (array $record) use ($server, $service) {
                         $core = $service->getInstalledCore($server);
                         $isInstalled = ($core['build'] ?? null) == $record['build'] && ($core['version'] ?? null) == $this->selectedMinorVersion;
                         return $isInstalled
-                            ? 'Are you sure you want to reinstall this core version? The server will be restarted.'
-                            : 'Are you sure you want to install this core version? The server will be restarted.';
+                            ? trans('pelican-mc-manager::strings.modals.confirm_reinstall')
+                            : trans('pelican-mc-manager::strings.modals.confirm_install');
                     })
                     ->action(function (array $record) use ($server, $service) {
                         // Paper API v3 uses 'server:default' or 'application'
@@ -262,7 +265,7 @@ class CoreManagementPage extends Page implements HasTable
                         }
 
                         if (!$download || !isset($download['url'])) {
-                            Notification::make()->title('Download URL not found')->danger()->send();
+                            Notification::make()->title(trans('pelican-mc-manager::strings.notifications.download_url_not_found'))->danger()->send();
                             return;
                         }
 
@@ -278,7 +281,7 @@ class CoreManagementPage extends Page implements HasTable
                             $checksum
                         );
 
-                        Notification::make()->title('Core installed')->success()->send();
+                        Notification::make()->title(trans('pelican-mc-manager::strings.notifications.core_installed'))->success()->send();
                         $this->dispatch('refresh');
                     }),
             ]);
@@ -293,28 +296,40 @@ class CoreManagementPage extends Page implements HasTable
             ->components([
                 Grid::make(3)
                     ->schema([
-                        TextEntry::make('Minecraft Version')
-                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? 'Not installed')
+                        TextEntry::make('minecraft_version')
+                            ->label(trans('pelican-mc-manager::strings.page.minecraft_version'))
+                            ->state(function () use ($server) {
+                                $version = MinecraftModrinth::getMinecraftVersion($server);
+                                return $version ?? trans('pelican-mc-manager::strings.page.not_installed');
+                            })
                             ->badge()
-                            ->color(fn($state) => $state === 'Not installed' ? 'gray' : 'primary'),
+                            ->color(function () use ($server) {
+                                return MinecraftModrinth::getMinecraftVersion($server) ? 'primary' : 'gray';
+                            }),
 
-                        TextEntry::make('Loader')
-                            ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? 'Unknown')
+                        TextEntry::make('loader')
+                            ->label(trans('pelican-mc-manager::strings.page.loader'))
+                            ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('pelican-mc-manager::strings.page.unknown'))
                             ->badge(),
 
                         TextEntry::make('installed_build')
-                            ->label('Installed Build')
-                            ->state(fn() => MinecraftModrinth::getInstalledCore($server)['build'] ?? 'None')
+                            ->label(trans('pelican-mc-manager::strings.page.installed_build'))
+                            ->state(function () use ($server) {
+                                $build = MinecraftModrinth::getInstalledCore($server)['build'] ?? null;
+                                return $build ?? trans('pelican-mc-manager::strings.page.none');
+                            })
                             ->badge()
-                            ->color(fn($state) => $state === 'None' ? 'gray' : 'success'),
+                            ->color(function () use ($server) {
+                                return (MinecraftModrinth::getInstalledCore($server)['build'] ?? null) ? 'success' : 'gray';
+                            }),
                     ]),
 
-                Section::make('Version Selection')
+                Section::make(trans('pelican-mc-manager::strings.page.version_selection'))
                     ->schema([
                         Grid::make(2)
                             ->schema([
                                 Select::make('selectedMajorVersion')
-                                    ->label('Major Version')
+                                    ->label(trans('pelican-mc-manager::strings.page.major_version'))
                                     ->live()
                                     ->options(function () {
                                         $service = new \Boy132\MinecraftModrinth\Services\MinecraftModrinthService();
@@ -330,7 +345,7 @@ class CoreManagementPage extends Page implements HasTable
                                     }),
 
                                 Select::make('selectedMinorVersion')
-                                    ->label('Minor Version')
+                                    ->label(trans('pelican-mc-manager::strings.page.minor_version'))
                                     ->live()
                                     ->options(function () {
                                         if (!$this->selectedMajorVersion)
@@ -408,7 +423,7 @@ class CoreManagementPage extends Page implements HasTable
         }
 
         if (empty($rawBuilds) || !is_array($rawBuilds)) {
-            \Filament\Notifications\Notification::make()->title('No builds found')->danger()->send();
+            \Filament\Notifications\Notification::make()->title(trans('pelican-mc-manager::strings.notifications.no_builds_found'))->danger()->send();
             return;
         }
 
@@ -427,7 +442,7 @@ class CoreManagementPage extends Page implements HasTable
             $download = $downloads['application'] ?? $downloads['server:default'] ?? null;
         } else {
             // Fallback for API v2 if builds are just IDs (shouldn't happen with getPaperBuilds but good to be safe)
-            \Filament\Notifications\Notification::make()->title('Cannot determine download URL')->danger()->send();
+            \Filament\Notifications\Notification::make()->title(trans('pelican-mc-manager::strings.notifications.cannot_determine_download_url'))->danger()->send();
             return;
         }
 
@@ -444,10 +459,10 @@ class CoreManagementPage extends Page implements HasTable
                 $download['checksums']['sha256'] ?? ''
             );
 
-            \Filament\Notifications\Notification::make()->title('Updated to build ' . $latestId)->success()->send();
+            \Filament\Notifications\Notification::make()->title(trans('pelican-mc-manager::strings.notifications.updated_to_build', ['build' => $latestId]))->success()->send();
             $this->dispatch('refresh');
         } else {
-            \Filament\Notifications\Notification::make()->title('Download not found for latest build')->danger()->send();
+            \Filament\Notifications\Notification::make()->title(trans('pelican-mc-manager::strings.notifications.download_not_found_for_latest_build'))->danger()->send();
         }
     }
 }

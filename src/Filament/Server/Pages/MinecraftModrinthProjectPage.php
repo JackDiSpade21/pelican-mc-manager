@@ -134,7 +134,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                 ->paginated([20])
                 ->headerActions([
                     Action::make('update_all')
-                        ->label('Update All')
+                        ->label(trans('pelican-mc-manager::strings.actions.update_all'))
                         ->icon('tabler-refresh')
                         ->color('warning')
                         ->requiresConfirmation()
@@ -147,7 +147,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                                 MinecraftModrinth::updateInstalledPlugin($server, $projectId, $newVersion);
                             }
 
-                            Notification::make()->title('All plugins updated')->success()->send();
+                            Notification::make()->title(trans('pelican-mc-manager::strings.notifications.all_plugins_updated'))->success()->send();
                             $this->redirect(static::getUrl(['currentView' => 'installed']));
                         })
                         ->visible(function () {
@@ -163,7 +163,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     Action::make('update')
                         ->icon('tabler-refresh')
                         ->color('warning')
-                        ->label('Update')
+                        ->label(trans('pelican-mc-manager::strings.actions.update'))
                         ->requiresConfirmation()
                         ->action(function (array $record) {
                             /** @var Server $server */
@@ -172,7 +172,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
 
                             if (isset($updates[$record['project_id']])) {
                                 MinecraftModrinth::updateInstalledPlugin($server, $record['project_id'], $updates[$record['project_id']]);
-                                Notification::make()->title('Plugin updated')->success()->send();
+                                Notification::make()->title(trans('pelican-mc-manager::strings.notifications.plugin_updated'))->success()->send();
                                 $this->redirect(static::getUrl(['currentView' => 'installed']));
                             }
                         })
@@ -185,17 +185,17 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     Action::make('delete')
                         ->icon('tabler-trash')
                         ->color('danger')
-                        ->label('Delete')
+                        ->label(trans('pelican-mc-manager::strings.actions.delete'))
                         ->requiresConfirmation()
                         ->action(function (array $record) {
                             /** @var Server $server */
                             $server = Filament::getTenant();
                             try {
                                 MinecraftModrinth::deleteInstalledPlugin($server, $record['project_id']);
-                                Notification::make()->title('Plugin deleted')->success()->send();
+                                Notification::make()->title(trans('pelican-mc-manager::strings.notifications.plugin_deleted'))->success()->send();
                                 $this->redirect(static::getUrl(['currentView' => 'installed']));
                             } catch (\Throwable $e) {
-                                Notification::make()->title('Error deleting plugin')->body($e->getMessage())->danger()->send();
+                                Notification::make()->title(trans('pelican-mc-manager::strings.notifications.error_deleting_plugin'))->body($e->getMessage())->danger()->send();
                             }
                         }),
                 ])
@@ -206,7 +206,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                         ->searchable()
                         ->sortable(),
                     TextColumn::make('version_number')
-                        ->label('Version')
+                        ->label(trans('pelican-mc-manager::strings.table.columns.version'))
                         ->badge()
                         ->color(function (array $record) {
                             // Highlight outdated versions?
@@ -219,7 +219,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     TextColumn::make('description')
                         ->limit(50),
                     TextColumn::make('date_installed')
-                        ->label('Installed')
+                        ->label(trans('pelican-mc-manager::strings.table.columns.installed_date'))
                         ->icon('tabler-calendar')
                         ->formatStateUsing(fn($state) => Carbon::parse($state)->diffForHumans())
                         ->sortable(),
@@ -232,7 +232,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
         return $table
             ->headerActions([
                 Action::make('toggle_incompatible')
-                    ->label('Show Incompatible')
+                    ->label(trans('pelican-mc-manager::strings.page.show_incompatible'))
                     ->icon(fn() => $this->showIncompatible ? 'tabler-eye' : 'tabler-eye-off')
                     ->color(fn() => $this->showIncompatible ? 'warning' : 'gray')
                     ->action(function () {
@@ -356,7 +356,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
 
         return [
             Action::make('toggle_view')
-                ->label($this->currentView === 'browse' ? 'View Installed' : 'Browse Modrinth')
+                ->label($this->currentView === 'browse' ? trans('pelican-mc-manager::strings.page.view_installed') : trans('pelican-mc-manager::strings.page.browse_modrinth'))
                 ->icon($this->currentView === 'browse' ? 'tabler-list' : 'tabler-search')
                 ->action(function () {
                     $newView = $this->currentView === 'browse' ? 'installed' : 'browse';
@@ -377,11 +377,18 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
             ->components([
                 Grid::make(3)
                     ->schema([
-                        TextEntry::make('Minecraft Version')
-                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? 'Not installed')
+                        TextEntry::make('minecraft_version')
+                            ->label(trans('pelican-mc-manager::strings.page.minecraft_version'))
+                            ->state(function () use ($server) {
+                                $version = MinecraftModrinth::getMinecraftVersion($server);
+                                return $version ?? trans('pelican-mc-manager::strings.page.not_installed');
+                            })
                             ->badge()
-                            ->color(fn($state) => $state === 'Not installed' ? 'gray' : 'primary'),
-                        TextEntry::make('Loader')
+                            ->color(function () use ($server) {
+                                return MinecraftModrinth::getMinecraftVersion($server) ? 'primary' : 'gray';
+                            }),
+                        TextEntry::make('loader')
+                            ->label(trans('pelican-mc-manager::strings.page.loader'))
                             ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('pelican-mc-manager::strings.page.unknown'))
                             ->badge(),
                         TextEntry::make('installed')
