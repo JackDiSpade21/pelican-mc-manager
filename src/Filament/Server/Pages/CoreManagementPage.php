@@ -298,9 +298,14 @@ class CoreManagementPage extends Page implements HasTable
                     ->schema([
                         TextEntry::make('minecraft_version')
                             ->label(trans('pelican-mc-manager::strings.page.minecraft_version'))
-                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? trans('pelican-mc-manager::strings.page.not_installed'))
+                            ->state(function () use ($server) {
+                                $version = MinecraftModrinth::getMinecraftVersion($server);
+                                return $version ?? trans('pelican-mc-manager::strings.page.not_installed');
+                            })
                             ->badge()
-                            ->color(fn($state) => $state === trans('pelican-mc-manager::strings.page.not_installed') ? 'gray' : 'primary'),
+                            ->color(function () use ($server) {
+                                return MinecraftModrinth::getMinecraftVersion($server) ? 'primary' : 'gray';
+                            }),
 
                         TextEntry::make('loader')
                             ->label(trans('pelican-mc-manager::strings.page.loader'))
@@ -309,9 +314,14 @@ class CoreManagementPage extends Page implements HasTable
 
                         TextEntry::make('installed_build')
                             ->label(trans('pelican-mc-manager::strings.page.installed_build'))
-                            ->state(fn() => MinecraftModrinth::getInstalledCore($server)['build'] ?? trans('pelican-mc-manager::strings.page.none'))
+                            ->state(function () use ($server) {
+                                $build = MinecraftModrinth::getInstalledCore($server)['build'] ?? null;
+                                return $build ?? trans('pelican-mc-manager::strings.page.none');
+                            })
                             ->badge()
-                            ->color(fn($state) => $state === trans('pelican-mc-manager::strings.page.none') ? 'gray' : 'success'),
+                            ->color(function () use ($server) {
+                                return (MinecraftModrinth::getInstalledCore($server)['build'] ?? null) ? 'success' : 'gray';
+                            }),
                     ]),
 
                 Section::make(trans('pelican-mc-manager::strings.page.version_selection'))

@@ -219,7 +219,7 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     TextColumn::make('description')
                         ->limit(50),
                     TextColumn::make('date_installed')
-                        ->label(trans('pelican-mc-manager::strings.page.installed_date'))
+                        ->label(trans('pelican-mc-manager::strings.table.columns.installed_date'))
                         ->icon('tabler-calendar')
                         ->formatStateUsing(fn($state) => Carbon::parse($state)->diffForHumans())
                         ->sortable(),
@@ -379,9 +379,14 @@ class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->schema([
                         TextEntry::make('minecraft_version')
                             ->label(trans('pelican-mc-manager::strings.page.minecraft_version'))
-                            ->state(fn() => MinecraftModrinth::getMinecraftVersion($server) ?? trans('pelican-mc-manager::strings.page.not_installed'))
+                            ->state(function () use ($server) {
+                                $version = MinecraftModrinth::getMinecraftVersion($server);
+                                return $version ?? trans('pelican-mc-manager::strings.page.not_installed');
+                            })
                             ->badge()
-                            ->color(fn($state) => $state === trans('pelican-mc-manager::strings.page.not_installed') ? 'gray' : 'primary'),
+                            ->color(function () use ($server) {
+                                return MinecraftModrinth::getMinecraftVersion($server) ? 'primary' : 'gray';
+                            }),
                         TextEntry::make('loader')
                             ->label(trans('pelican-mc-manager::strings.page.loader'))
                             ->state(fn() => MinecraftLoader::fromServer($server)?->getLabel() ?? trans('pelican-mc-manager::strings.page.unknown'))

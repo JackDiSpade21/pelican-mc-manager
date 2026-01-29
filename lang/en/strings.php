@@ -16,7 +16,6 @@ return [
         'minecraft_version' => 'Minecraft Version',
         'loader' => 'Loader',
         'installed' => 'Installed :type',
-        'installed_date' => 'Installed',
         'installed_badge' => 'Installed',
         'unknown' => 'Unknown',
         'not_installed' => 'Not installed',
@@ -40,6 +39,7 @@ return [
             'downloads' => 'Downloads',
             'date_modified' => 'Modified',
             'version' => 'Version',
+            'installed_date' => 'Installed',
         ],
     ],
 
